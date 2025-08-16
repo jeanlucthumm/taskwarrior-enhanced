@@ -74,15 +74,22 @@ def tree():
         task = tasks[task_uuid]
         task_id = task.get("id", "?")
         description = task["description"]
+        priority = task.get("priority", "")
 
         # Add multiple parents indicator
         parent_count = len(parents.get(task_uuid, []))
         if parent_count > 1:
             description = f"[{parent_count}↑] {description}"
 
-        # Print current task with ID prefix
+        # Print current task with ID prefix and color based on priority
         connector = "└── " if is_last else "├── "
-        click.echo(f"{prefix}{connector}{task_id} {description}")
+        task_line = f"{prefix}{connector}{task_id} {description}"
+
+        # Gray out low priority tasks
+        if priority == "L":
+            task_line = click.style(task_line, fg="bright_black")
+
+        click.echo(task_line)
 
         # Print children
         task_children = children.get(task_uuid, [])
