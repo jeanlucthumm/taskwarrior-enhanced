@@ -13,12 +13,19 @@ def cli():
 
 
 @cli.command()
-def tree():
+@click.argument('filters', nargs=-1)
+def tree(filters):
     """Display pending tasks in a dependency tree format"""
+
+    # Build task command with filters
+    task_cmd = ["task", "+PENDING"]
+    if filters:
+        task_cmd.extend(filters)
+    task_cmd.append("export")
 
     try:
         result = subprocess.run(
-            ["task", "+PENDING", "export"], capture_output=True, text=True, check=True
+            task_cmd, capture_output=True, text=True, check=True
         )
         tasks_data = json.loads(result.stdout)
     except subprocess.CalledProcessError:
