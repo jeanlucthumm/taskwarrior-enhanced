@@ -72,6 +72,7 @@ def tree():
         visited.add(task_uuid)
 
         task = tasks[task_uuid]
+        task_id = task.get("id", "?")
         description = task["description"]
 
         # Add multiple parents indicator
@@ -79,9 +80,9 @@ def tree():
         if parent_count > 1:
             description = f"[{parent_count}↑] {description}"
 
-        # Print current task
+        # Print current task with ID prefix
         connector = "└── " if is_last else "├── "
-        click.echo(f"{prefix}{connector}{description}")
+        click.echo(f"{prefix}{connector}{task_id} {description}")
 
         # Print children
         task_children = children.get(task_uuid, [])
