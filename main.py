@@ -1,7 +1,6 @@
 import json
 import subprocess
-from collections import defaultdict, deque
-from typing import Dict, List, Set, Optional
+from collections import defaultdict, deque from typing import Dict, List, Set, Optional
 
 import click
 
