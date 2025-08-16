@@ -13,7 +13,7 @@ def cli():
 
 
 @cli.command()
-@click.argument('filters', nargs=-1)
+@click.argument("filters", nargs=-1)
 def tree(filters):
     """Display pending tasks in a dependency tree format"""
 
@@ -24,9 +24,7 @@ def tree(filters):
     task_cmd.append("export")
 
     try:
-        result = subprocess.run(
-            task_cmd, capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(task_cmd, capture_output=True, text=True, check=True)
         tasks_data = json.loads(result.stdout)
     except subprocess.CalledProcessError:
         click.echo("Error: Failed to run 'task +PENDING export'", err=True)
@@ -67,8 +65,16 @@ def tree(filters):
         if task_uuid not in all_children:
             roots.append(task_uuid)
 
-    # Sort roots by urgency (descending) for consistent output
-    roots.sort(key=lambda uuid: tasks[uuid].get("urgency", 0), reverse=True)
+    # Sort roots by priority first, then urgency (both descending) for consistent output
+    def get_sort_key(uuid):
+        task = tasks[uuid]
+        priority = task.get("priority", "")
+        urgency = task.get("urgency", 0)
+        # Priority order: H > M > L > None, then by urgency
+        priority_order = {"H": 4, "M": 3, "L": 2, "": 1}
+        return (priority_order.get(priority, 0), urgency)
+
+    roots.sort(key=get_sort_key)
 
     # Print the tree
     visited = set()
@@ -102,8 +108,8 @@ def tree(filters):
 
         # Print children
         task_children = children.get(task_uuid, [])
-        # Sort children by urgency
-        task_children.sort(key=lambda uuid: tasks[uuid].get("urgency", 0), reverse=True)
+        # Sort children by priority first, then urgency
+        task_children.sort(key=get_sort_key)
 
         for i, child_uuid in enumerate(task_children):
             if child_uuid not in visited:
