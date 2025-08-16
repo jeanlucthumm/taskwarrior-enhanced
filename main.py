@@ -118,4 +118,4 @@ def tree(filters):
 
 
 if __name__ == "__main__":
-    cli()
+    cli(prog_name="taskwarrior-enhanced")
