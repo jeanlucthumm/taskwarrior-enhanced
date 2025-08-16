@@ -1,6 +1,7 @@
 import json
 import subprocess
-from collections import defaultdict, deque from typing import Dict, List, Set, Optional
+from collections import defaultdict, deque
+from typing import Dict, List, Set, Optional
 
 import click
 
@@ -84,9 +85,11 @@ def tree():
         connector = "└── " if is_last else "├── "
         task_line = f"{prefix}{connector}{task_id} {description}"
 
-        # Gray out low priority tasks
+        # Color based on priority
         if priority == "L":
             task_line = click.style(task_line, fg="bright_black")
+        elif priority == "H":
+            task_line = click.style(task_line, fg="bright_red", bold=True)
 
         click.echo(task_line)
 
