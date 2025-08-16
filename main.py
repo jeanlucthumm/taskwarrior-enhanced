@@ -90,16 +90,24 @@ def tree(filters):
         priority = task.get("priority", "")
 
         # Add multiple parents indicator
-        parent_count = len(parents.get(task_uuid, []))
-        if parent_count > 1:
-            description = f"[{parent_count}↑] {description}"
+        task_parents = parents.get(task_uuid, [])
+        if len(task_parents) > 1:
+            parent_ids = [
+                tasks[parent_uuid].get("id", "?") for parent_uuid in task_parents
+            ]
+            parent_ids_str = ",".join(map(str, parent_ids))
+            description = f"[{len(task_parents)}↑:{parent_ids_str}] {description}"
 
         # Print current task with ID prefix and color based on priority
         connector = "└── " if is_last else "├── "
         task_line = f"{prefix}{connector}{task_id} {description}"
 
-        # Color based on priority
-        if priority == "L":
+        # Color based on priority and active status
+        is_active = "start" in task
+
+        if is_active:
+            task_line = click.style(task_line, fg="bright_green", bold=True)
+        elif priority == "L":
             task_line = click.style(task_line, fg="bright_black")
         elif priority == "H":
             task_line = click.style(task_line, fg="bright_red", bold=True)
