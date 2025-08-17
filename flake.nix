@@ -91,9 +91,7 @@
             # Create wrapper that uses the virtual environment
             makeWrapper ${virtualenv}/bin/python $out/bin/taskwarrior-enhanced \
               --add-flags "$out/bin/taskwarrior-enhanced-script" \
-              --prefix PATH : ${lib.makeBinPath [pkgs.taskwarrior]} \
-              --set TASKDATA "$HOME/.local/share/task" \
-              --set TASKRC "$HOME/.config/task/taskrc"
+              --prefix PATH : ${lib.makeBinPath [pkgs.taskwarrior3]}
           '';
 
           meta = {
