@@ -82,6 +82,8 @@
 
           buildInputs = [pkgs.makeWrapper];
 
+          buildPhase = "true";  # Skip the default make build
+
           installPhase = ''
             mkdir -p $out/bin
 
