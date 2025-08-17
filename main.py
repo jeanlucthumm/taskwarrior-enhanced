@@ -26,8 +26,14 @@ def tree(filters):
     try:
         result = subprocess.run(task_cmd, capture_output=True, text=True, check=True)
         tasks_data = json.loads(result.stdout)
-    except subprocess.CalledProcessError:
-        click.echo("Error: Failed to run 'task +PENDING export'", err=True)
+    except subprocess.CalledProcessError as e:
+        click.echo(f"Error: Failed to run 'task +PENDING export'", err=True)
+        click.echo(f"Return code: {e.returncode}", err=True)
+        click.echo(f"stderr: {e.stderr}", err=True)
+        click.echo(f"stdout: {e.stdout}", err=True)
+        return
+    except FileNotFoundError:
+        click.echo("Error: 'task' command not found. Is taskwarrior installed?", err=True)
         return
     except json.JSONDecodeError:
         click.echo("Error: Failed to parse task export output", err=True)
