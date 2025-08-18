@@ -20,5 +20,10 @@
     };
     venv.enable = true;
   };
-}
 
+  tasks = {
+    "dev:format" = {
+      exec = "ruff format .";
+    };
+  };
+}
