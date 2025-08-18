@@ -1,9 +1,34 @@
 import json
 import subprocess
 from collections import defaultdict, deque
+from datetime import datetime, timezone
 from typing import Dict, List, Set, Optional
 
 import click
+
+
+def is_overdue_or_due_today(task: Dict) -> Optional[str]:
+    """Check if task is overdue or due today. Returns 'overdue', 'due_today', or None."""
+    if "due" not in task:
+        return None
+
+    try:
+        # Parse due date from taskwarrior ISO format
+        due_date = datetime.fromisoformat(task["due"].replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+
+        # Get start of today in UTC
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        if due_date < now:
+            return "overdue"
+        elif today_start <= due_date <= today_end:
+            return "due_today"
+        else:
+            return None
+    except (ValueError, AttributeError):
+        return None
 
 
 @click.group()
@@ -33,7 +58,9 @@ def tree(filters):
         click.echo(f"stdout: {e.stdout}", err=True)
         return
     except FileNotFoundError:
-        click.echo("Error: 'task' command not found. Is taskwarrior installed?", err=True)
+        click.echo(
+            "Error: 'task' command not found. Is taskwarrior installed?", err=True
+        )
         return
     except json.JSONDecodeError:
         click.echo("Error: Failed to parse task export output", err=True)
@@ -108,11 +135,14 @@ def tree(filters):
         connector = "└── " if is_last else "├── "
         task_line = f"{prefix}{connector}{task_id} {description}"
 
-        # Color based on priority and active status
+        # Color based on priority, active status, and due dates
         is_active = "start" in task
+        due_status = is_overdue_or_due_today(task)
 
         if is_active:
             task_line = click.style(task_line, fg="bright_green", bold=True)
+        elif due_status in ("overdue", "due_today"):
+            task_line = click.style(task_line, fg="blue")
         elif priority == "L":
             task_line = click.style(task_line, fg="bright_black")
         elif priority == "H":
