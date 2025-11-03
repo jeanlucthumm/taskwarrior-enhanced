@@ -4,6 +4,12 @@ Companion CLI for [taskwarrior](https://taskwarrior.org/)
 
 ## Features
 
+### Context Awareness
+
+- Automatically detects your active Taskwarrior context (via `taskrc` or the Taskwarrior CLI)
+- Displays the detected context before rendering the task tree
+- Applies the saved context filter automatically, even when running outside the standard `task` shell environment
+
 ### Dependency Tree View
 
 Display pending tasks in a hierarchical tree format that shows task dependencies:

@@ -1,8 +1,11 @@
 import json
+import os
+import shlex
 import subprocess
-from collections import defaultdict, deque
+from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, List, Set, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 import click
 
@@ -31,19 +34,202 @@ def is_overdue_or_due_today(task: Dict) -> Optional[str]:
         return None
 
 
+def _detect_context_via_task_cli() -> Optional[str]:
+    """Attempt to read the active context using the task CLI."""
+    try:
+        result = subprocess.run(
+            ["task", "_get", "rc.context"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+
+    context = result.stdout.strip()
+    return context or None
+
+
+def _expand_include_path(include_path: str, base_path: Path) -> Path:
+    """Resolve include path relative to base file, expanding user and env vars."""
+    expanded = os.path.expandvars(include_path.strip().strip('"\''))
+    candidate = Path(expanded).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    return (base_path.parent / candidate).resolve()
+
+
+def _parse_taskrc_for_contexts(
+    path: Path, visited: Set[Path]
+) -> Tuple[Optional[str], Dict[str, str]]:
+    """Recursively parse Taskwarrior rc files for the active context and definitions.
+
+    Supports both `context.<name>=...` and `context.<name>.read/.write=...` forms.
+    When both read/write exist, the returned filter is `.read` since the tree
+    command performs a read-only listing.
+    """
+    try:
+        resolved_path = path.resolve()
+    except FileNotFoundError:
+        return None, {}
+
+    if resolved_path in visited or not resolved_path.exists():
+        return None, {}
+
+    visited.add(resolved_path)
+
+    try:
+        contents = resolved_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None, {}
+
+    active_context: Optional[str] = None
+    # Track possibly separate read/write filters per context name
+    read_filters: Dict[str, str] = {}
+    write_filters: Dict[str, str] = {}
+    generic_filters: Dict[str, str] = {}
+
+    for raw_line in contents:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        if line.lower().startswith("include"):
+            _, _, include_part = line.partition(" ")
+            if include_part:
+                include_path = _expand_include_path(include_part, resolved_path)
+                nested_active, nested_definitions = _parse_taskrc_for_contexts(
+                    include_path, visited
+                )
+                if nested_active is not None:
+                    active_context = nested_active
+                for _name, _filter in nested_definitions.items():
+                    # Do not overwrite current file's explicit read/write entries
+                    if _name not in read_filters and _name not in write_filters and _name not in generic_filters:
+                        generic_filters[_name] = _filter
+            continue
+
+        if line.startswith("context."):
+            key, _, value = line.partition("=")
+            if not value:
+                continue
+            rhs = value.split("#", 1)[0].strip()
+            # key looks like: context.NAME or context.NAME.read/write
+            key_body = key[len("context.") :].strip()
+            if not key_body:
+                continue
+            parts = key_body.split(".")
+            if len(parts) == 1:
+                context_name = parts[0]
+                generic_filters[context_name] = rhs
+            elif len(parts) == 2:
+                context_name, mode = parts
+                mode = mode.lower()
+                if mode == "read":
+                    read_filters[context_name] = rhs
+                elif mode == "write":
+                    write_filters[context_name] = rhs
+                else:
+                    # Unknown suffix, treat it as generic
+                    generic_filters[context_name] = rhs
+            else:
+                # Unexpected extra dots; use the first as name and last as mode
+                context_name = parts[0]
+                mode = parts[-1].lower()
+                if mode == "read":
+                    read_filters[context_name] = rhs
+                elif mode == "write":
+                    write_filters[context_name] = rhs
+                else:
+                    generic_filters[context_name] = rhs
+            continue
+
+        if line.startswith("context") and not line.startswith("context."):
+            _, _, value = line.partition("=")
+            context_value = value.split("#", 1)[0].strip()
+            if context_value:
+                active_context = context_value
+
+    # Merge into a single mapping preferring read > generic > write
+    merged: Dict[str, str] = {}
+    for name in set().union(read_filters.keys(), generic_filters.keys(), write_filters.keys()):
+        if name in read_filters:
+            merged[name] = read_filters[name]
+        elif name in generic_filters:
+            merged[name] = generic_filters[name]
+        elif name in write_filters:
+            merged[name] = write_filters[name]
+
+    return active_context, merged
+
+
+def _taskrc_path() -> Optional[Path]:
+    """Return the primary taskrc file location if it exists."""
+    candidates: List[Path] = []
+    taskrc_env = os.environ.get("TASKRC")
+    if taskrc_env:
+        candidates.append(Path(taskrc_env).expanduser())
+
+    home = Path.home()
+    candidates.extend(
+        [
+            home / ".taskrc",
+            home / ".config" / "task" / "taskrc",
+        ]
+    )
+
+    for candidate in candidates:
+        expanded = candidate.expanduser()
+        if expanded.exists():
+            try:
+                return expanded.resolve()
+            except FileNotFoundError:
+                continue
+    return None
+
+
+def detect_active_context() -> Tuple[Optional[str], Optional[str]]:
+    """Detect the active Taskwarrior context and its filter definition."""
+    context = _detect_context_via_task_cli()
+    context_filters: Dict[str, str] = {}
+    config_context: Optional[str] = None
+
+    taskrc = _taskrc_path()
+    if taskrc:
+        config_context, context_filters = _parse_taskrc_for_contexts(taskrc, set())
+
+    active_context = context or config_context
+    filter_definition = None
+    if active_context:
+        filter_definition = context_filters.get(active_context)
+
+    return active_context, filter_definition
+
+
 @click.group()
-def cli():
+def cli() -> None:
     """Taskwarrior Enhanced - Companion CLI for taskwarrior"""
     pass
 
 
 @cli.command()
 @click.argument("filters", nargs=-1)
-def tree(filters):
+def tree(filters: Tuple[str, ...]) -> None:
     """Display pending tasks in a dependency tree format"""
 
     # Build task command with filters
-    task_cmd = ["task", "+PENDING"]
+    task_cmd: List[str] = ["task"]
+    context_name, context_filter = detect_active_context()
+    if context_name:
+        # Minimal, user-friendly log
+        click.echo(f"Context: {context_name}")
+        if context_filter:
+            context_args = shlex.split(context_filter)
+            task_cmd.extend(context_args)
+        else:
+            task_cmd.append(f"rc.context={context_name}")
+
+    task_cmd.append("+PENDING")
     if filters:
         task_cmd.extend(filters)
     task_cmd.append("export")
@@ -99,10 +285,14 @@ def tree(filters):
             roots.append(task_uuid)
 
     # Sort roots by priority first, then urgency (both descending) for consistent output
-    def get_sort_key(uuid):
+    def get_sort_key(uuid: str) -> Tuple[int, float]:
         task = tasks[uuid]
         priority = task.get("priority", "")
-        urgency = task.get("urgency", 0)
+        urgency_value = task.get("urgency", 0)
+        try:
+            urgency = float(urgency_value)
+        except (TypeError, ValueError):
+            urgency = 0.0
         # Priority order: H > M > L > None, then by urgency
         priority_order = {"H": 4, "M": 3, "L": 2, "": 1}
         return (priority_order.get(priority, 0), urgency)
@@ -112,7 +302,7 @@ def tree(filters):
     # Print the tree
     visited = set()
 
-    def print_tree(task_uuid: str, prefix: str = "", is_last: bool = True):
+    def print_tree(task_uuid: str, prefix: str = "", is_last: bool = True) -> None:
         if task_uuid in visited:
             return
         visited.add(task_uuid)
