@@ -33,7 +33,7 @@ Example output:
 #### Features:
 
 - **Hierarchical view**: Tasks with dependencies show their blocking tasks indented underneath
-- **Multiple parent indicator**: Tasks that block multiple other tasks show `[N↑]` prefix
+- **Multiple parent indicator**: Tasks that block multiple other tasks show `[id,id]` prefix listing parent task IDs
 - **Priority coloring**:
   - Low priority tasks (`L`) are grayed out
   - High priority tasks (`H`) are highlighted in bright red and bold

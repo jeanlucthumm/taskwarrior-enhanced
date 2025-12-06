@@ -319,7 +319,7 @@ def tree(filters: Tuple[str, ...]) -> None:
                 tasks[parent_uuid].get("id", "?") for parent_uuid in task_parents
             ]
             parent_ids_str = ",".join(map(str, parent_ids))
-            description = f"[{len(task_parents)}↑:{parent_ids_str}] {description}"
+            description = f"[{parent_ids_str}] {description}"
 
         # Print current task with ID prefix and color based on priority
         connector = "└── " if is_last else "├── "
