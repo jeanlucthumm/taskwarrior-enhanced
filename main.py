@@ -302,7 +302,12 @@ def tree(filters: Tuple[str, ...]) -> None:
     # Print the tree
     visited = set()
 
-    def print_tree(task_uuid: str, prefix: str = "", is_last: bool = True) -> None:
+    def print_tree(
+        task_uuid: str,
+        prefix: str = "",
+        is_last: bool = True,
+        current_parent: str | None = None,
+    ) -> None:
         if task_uuid in visited:
             return
         visited.add(task_uuid)
@@ -312,34 +317,35 @@ def tree(filters: Tuple[str, ...]) -> None:
         description = task["description"]
         priority = task.get("priority", "")
 
-        # Add multiple parents indicator (styled grey)
+        # Add multiple parents indicator (styled grey), excluding current parent
         task_parents = parents.get(task_uuid, [])
+        other_parents = [p for p in task_parents if p != current_parent]
         multi_parent_prefix = ""
-        if len(task_parents) > 1:
+        if other_parents:
             parent_ids = [
-                tasks[parent_uuid].get("id", "?") for parent_uuid in task_parents
+                tasks[parent_uuid].get("id", "?") for parent_uuid in other_parents
             ]
             parent_ids_str = ",".join(map(str, parent_ids))
-            multi_parent_prefix = click.style(f"[{parent_ids_str}] ", fg="bright_black")
+            multi_parent_prefix = click.style(f" [{parent_ids_str}]", fg="bright_black")
 
         # Print current task with ID prefix and color based on priority
         connector = "└── " if is_last else "├── "
-        task_line = f"{prefix}{connector}{task_id} {description}"
+        task_content = f"{task_id} {description}"
 
         # Color based on priority, active status, and due dates
         is_active = "start" in task
         due_status = is_overdue_or_due_today(task)
 
         if is_active:
-            task_line = click.style(task_line, fg="bright_green", bold=True)
+            task_content = click.style(task_content, fg="bright_green", bold=True)
         elif due_status in ("overdue", "due_today"):
-            task_line = click.style(task_line, fg="blue")
+            task_content = click.style(task_content, fg="blue")
         elif priority == "L":
-            task_line = click.style(task_line, fg="bright_black")
+            task_content = click.style(task_content, fg="bright_black")
         elif priority == "H":
-            task_line = click.style(task_line, fg="bright_red", bold=True)
+            task_content = click.style(task_content, fg="bright_red", bold=True)
 
-        click.echo(f"{multi_parent_prefix}{task_line}")
+        click.echo(f"{prefix}{connector}{task_content}{multi_parent_prefix}")
 
         # Print children
         task_children = children.get(task_uuid, [])
@@ -350,7 +356,7 @@ def tree(filters: Tuple[str, ...]) -> None:
             if child_uuid not in visited:
                 is_child_last = i == len(task_children) - 1
                 child_prefix = prefix + ("    " if is_last else "│   ")
-                print_tree(child_uuid, child_prefix, is_child_last)
+                print_tree(child_uuid, child_prefix, is_child_last, task_uuid)
 
     # Print all trees starting from roots
     for i, root_uuid in enumerate(roots):
