@@ -312,14 +312,15 @@ def tree(filters: Tuple[str, ...]) -> None:
         description = task["description"]
         priority = task.get("priority", "")
 
-        # Add multiple parents indicator
+        # Add multiple parents indicator (styled grey)
         task_parents = parents.get(task_uuid, [])
+        multi_parent_prefix = ""
         if len(task_parents) > 1:
             parent_ids = [
                 tasks[parent_uuid].get("id", "?") for parent_uuid in task_parents
             ]
             parent_ids_str = ",".join(map(str, parent_ids))
-            description = f"[{parent_ids_str}] {description}"
+            multi_parent_prefix = click.style(f"[{parent_ids_str}] ", fg="bright_black")
 
         # Print current task with ID prefix and color based on priority
         connector = "└── " if is_last else "├── "
@@ -338,7 +339,7 @@ def tree(filters: Tuple[str, ...]) -> None:
         elif priority == "H":
             task_line = click.style(task_line, fg="bright_red", bold=True)
 
-        click.echo(task_line)
+        click.echo(f"{multi_parent_prefix}{task_line}")
 
         # Print children
         task_children = children.get(task_uuid, [])
