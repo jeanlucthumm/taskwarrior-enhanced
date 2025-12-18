@@ -229,16 +229,27 @@ def tree(filters: Tuple[str, ...]) -> None:
         else:
             task_cmd.append(f"rc.context={context_name}")
 
-    task_cmd.append("+PENDING")
+    # Fetch both pending and waiting tasks
+    pending_cmd = task_cmd + ["+PENDING"]
+    waiting_cmd = task_cmd + ["+WAITING"]
     if filters:
-        task_cmd.extend(filters)
-    task_cmd.append("export")
+        pending_cmd.extend(filters)
+        waiting_cmd.extend(filters)
+    pending_cmd.append("export")
+    waiting_cmd.append("export")
 
     try:
-        result = subprocess.run(task_cmd, capture_output=True, text=True, check=True)
-        tasks_data = json.loads(result.stdout)
+        pending_result = subprocess.run(
+            pending_cmd, capture_output=True, text=True, check=True
+        )
+        pending_tasks = json.loads(pending_result.stdout)
+
+        waiting_result = subprocess.run(
+            waiting_cmd, capture_output=True, text=True, check=True
+        )
+        waiting_tasks = json.loads(waiting_result.stdout)
     except subprocess.CalledProcessError as e:
-        click.echo(f"Error: Failed to run 'task +PENDING export'", err=True)
+        click.echo("Error: Failed to run task export", err=True)
         click.echo(f"Return code: {e.returncode}", err=True)
         click.echo(f"stderr: {e.stderr}", err=True)
         click.echo(f"stdout: {e.stdout}", err=True)
@@ -252,8 +263,23 @@ def tree(filters: Tuple[str, ...]) -> None:
         click.echo("Error: Failed to parse task export output", err=True)
         return
 
+    # Track waiting task UUIDs for styling
+    waiting_uuids: Set[str] = {task["uuid"] for task in waiting_tasks}
+
+    # Merge tasks (pending first, then add waiting tasks not already present)
+    seen_uuids: Set[str] = set()
+    tasks_data: List[Dict] = []
+    for task in pending_tasks:
+        if task["uuid"] not in seen_uuids:
+            seen_uuids.add(task["uuid"])
+            tasks_data.append(task)
+    for task in waiting_tasks:
+        if task["uuid"] not in seen_uuids:
+            seen_uuids.add(task["uuid"])
+            tasks_data.append(task)
+
     if not tasks_data:
-        click.echo("No pending tasks found.")
+        click.echo("No pending or waiting tasks found.")
         return
 
     # Build task lookup and dependency maps
@@ -332,15 +358,16 @@ def tree(filters: Tuple[str, ...]) -> None:
         connector = "└── " if is_last else "├── "
         task_content = f"{task_id} {description}"
 
-        # Color based on priority, active status, and due dates
+        # Color based on priority, active status, due dates, and waiting status
         is_active = "start" in task
+        is_waiting = task_uuid in waiting_uuids
         due_status = is_overdue_or_due_today(task)
 
         if is_active:
             task_content = click.style(task_content, fg="bright_green", bold=True)
         elif due_status in ("overdue", "due_today"):
             task_content = click.style(task_content, fg="blue")
-        elif priority == "L":
+        elif is_waiting or priority == "L":
             task_content = click.style(task_content, fg="bright_black")
         elif priority == "H":
             task_content = click.style(task_content, fg="bright_red", bold=True)
