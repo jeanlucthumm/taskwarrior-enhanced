@@ -391,5 +391,158 @@ def tree(filters: Tuple[str, ...]) -> None:
             print_tree(root_uuid, "", i == len(roots) - 1)
 
 
+@cli.command()
+@click.argument("task_id")
+def chain(task_id: str) -> None:
+    """Display ancestor tree from a task upward (tasks blocked by it)"""
+
+    # Build task command with context
+    task_cmd: List[str] = ["task"]
+    context_name, context_filter = detect_active_context()
+    if context_name:
+        click.echo(f"Context: {context_name}")
+        if context_filter:
+            context_args = shlex.split(context_filter)
+            task_cmd.extend(context_args)
+        else:
+            task_cmd.append(f"rc.context={context_name}")
+
+    # Fetch pending tasks only (no waiting)
+    cmd = task_cmd + ["+PENDING", "export"]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        tasks_data = json.loads(result.stdout)
+    except subprocess.CalledProcessError as e:
+        click.echo("Error: Failed to run task export", err=True)
+        click.echo(f"stderr: {e.stderr}", err=True)
+        return
+    except FileNotFoundError:
+        click.echo(
+            "Error: 'task' command not found. Is taskwarrior installed?", err=True
+        )
+        return
+    except json.JSONDecodeError:
+        click.echo("Error: Failed to parse task export output", err=True)
+        return
+
+    if not tasks_data:
+        click.echo("No pending tasks found.")
+        return
+
+    # Build task lookup
+    tasks = {task["uuid"]: task for task in tasks_data}
+
+    # Find the root task by ID or UUID
+    root_uuid = None
+    for task in tasks_data:
+        if str(task.get("id")) == task_id or task.get("uuid") == task_id:
+            root_uuid = task["uuid"]
+            break
+
+    if not root_uuid:
+        click.echo(f"Error: Task '{task_id}' not found in pending tasks.", err=True)
+        return
+
+    # Build parent relationships
+    # parents[uuid] = list of tasks that depend on uuid (tasks that uuid blocks)
+    parents: Dict[str, List[str]] = defaultdict(list)
+    for task in tasks_data:
+        if "depends" in task:
+            for dependency_uuid in task["depends"]:
+                if dependency_uuid in tasks:
+                    parents[dependency_uuid].append(task["uuid"])
+
+    # Sort helper
+    def get_sort_key(uuid: str) -> Tuple[int, float]:
+        task = tasks[uuid]
+        priority = task.get("priority", "")
+        urgency_value = task.get("urgency", 0)
+        try:
+            urgency = float(urgency_value)
+        except (TypeError, ValueError):
+            urgency = 0.0
+        priority_order = {"H": 4, "M": 3, "L": 2, "": 1}
+        return (priority_order.get(priority, 0), urgency)
+
+    # Print the root task first (cyan)
+    root_task = tasks[root_uuid]
+    root_id = root_task.get("id", "?")
+    root_desc = root_task["description"]
+    root_content = click.style(f"{root_id} {root_desc}", fg="cyan", bold=True)
+    click.echo(root_content)
+
+    def print_ancestors(
+        task_uuid: str,
+        prefix: str = "",
+        is_last: bool = True,
+        path: Set[str] | None = None,
+        is_branching: bool = False,
+    ) -> None:
+        if path is None:
+            path = set()
+
+        if task_uuid in path:
+            return  # Cycle detected, stop
+
+        # Create new path set for this branch
+        current_path = path | {task_uuid}
+
+        task = tasks[task_uuid]
+        task_id = task.get("id", "?")
+        description = task["description"]
+        priority = task.get("priority", "")
+
+        # Use tree connectors only when branching, no connector for linear chains
+        if is_branching:
+            connector = "└── " if is_last else "├── "
+        else:
+            connector = ""
+        task_content = f"{task_id} {description}"
+
+        # Style based on priority and active status
+        is_active = "start" in task
+        due_status = is_overdue_or_due_today(task)
+
+        if is_active:
+            task_content = click.style(task_content, fg="bright_green", bold=True)
+        elif due_status in ("overdue", "due_today"):
+            task_content = click.style(task_content, fg="blue")
+        elif priority == "L":
+            task_content = click.style(task_content, fg="bright_black")
+        elif priority == "H":
+            task_content = click.style(task_content, fg="bright_red", bold=True)
+
+        click.echo(f"{prefix}{connector}{task_content}")
+
+        # Print parents (tasks blocked by this task)
+        task_parents = parents.get(task_uuid, [])
+        task_parents_sorted = sorted(task_parents, key=get_sort_key)
+        num_parents = len(task_parents_sorted)
+        parents_branching = num_parents > 1
+
+        # Calculate prefix for parents based on whether WE used a connector
+        if is_branching:
+            child_prefix = prefix + ("    " if is_last else "│   ")
+        else:
+            child_prefix = prefix
+
+        for i, parent_uuid in enumerate(task_parents_sorted):
+            is_parent_last = i == num_parents - 1
+            print_ancestors(
+                parent_uuid, child_prefix, is_parent_last, current_path, parents_branching
+            )
+
+    # Print ancestors starting from root's parents
+    root_parents = parents.get(root_uuid, [])
+    root_parents_sorted = sorted(root_parents, key=get_sort_key)
+    root_branching = len(root_parents_sorted) > 1
+
+    root_path: Set[str] = {root_uuid}
+    for i, parent_uuid in enumerate(root_parents_sorted):
+        is_last = i == len(root_parents_sorted) - 1
+        print_ancestors(parent_uuid, "", is_last, root_path, root_branching)
+
+
 if __name__ == "__main__":
     cli(prog_name="taskwarrior-enhanced")
