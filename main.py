@@ -400,7 +400,6 @@ def chain(task_id: str) -> None:
     task_cmd: List[str] = ["task"]
     context_name, context_filter = detect_active_context()
     if context_name:
-        click.echo(f"Context: {context_name}")
         if context_filter:
             context_args = shlex.split(context_filter)
             task_cmd.extend(context_args)
@@ -470,6 +469,7 @@ def chain(task_id: str) -> None:
     root_id = root_task.get("id", "?")
     root_desc = root_task["description"]
     root_content = click.style(f"{root_id} {root_desc}", fg="cyan", bold=True)
+    click.echo()
     click.echo(root_content)
 
     def print_ancestors(
